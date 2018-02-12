@@ -93,7 +93,7 @@ var schema = new Schema({
     },
     payBigBlind: {
         type: Boolean,
-        default: false
+        default: true
     }
 
 });
@@ -652,7 +652,7 @@ var model = {
                             // console.log("remainingBalance", remainingBalance);
                             console.log("allData.callAmount;", allData.callAmount);
                             console.log("maxAmount", maxAmount);
-                            if (allData.table.status == 'preFlop' && maxAmount == 0) {
+                            if (allData.table.status == 'preFlop' && maxAmount < allData.table.bigBlind) {
                                 console.log("inside <<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
                                 allData.isCalled = true;
                                 // allData.isChecked = false;
@@ -791,184 +791,401 @@ var model = {
                 //         }
                 //     });
                 // },
-                function (fwCallback) {
-                    //console.log(fwCallback);
 
-                    Player.findSmallAndDealer(data, function (err, result) {
-                        if (err) {
-                            callback(err)
-                        } else {
-                            if (_.isEmpty(result)) {
-                                callback(null);
-                            } else {
-                                var currentDealer = result.dealer.playerNo;
-                                var currentSmallBlind = result.smallBlind.playerNo;
-                                var filter1 = {
-                                    $or: [{
-                                        table: data.tableId,
-                                        isActive: true
-                                    }, {
-                                        table: data.tableId,
-                                        tableLeft: false,
-                                        playerNo: {
-                                            $lte: currentDealer,
-                                            $gte: currentSmallBlind
-                                        },
-                                        
-                                    }, {
-                                        isDealer: true
-                                    }, {
-                                        isSmallBlind: true 
-                                    },{
-                                        isBigBlind: true
-                                    }]
-                                };
-                                var filter2 = {
-                                    playerNo: {
-                                        $gte: currentDealer,
-                                        $lte: currentSmallBlind
-                                    },
-                                    tableLeft: false,
-                                    isActive: false
-                                }
-                                async.waterfall([function (callback) {
-                                        Model.find(filter1).deepPopulate('user table').exec(function (err, players) {
-                                            if (err) {
-                                                callback(err);
-                                            } else {
-                                                var dealerData = {
-                                                    dealerNo: 0,
-                                                    bigBlindNo: 0,
-                                                    smallBlindNo: 0
-                                                }
-                                                var dealer = _.findIndex(players, function (p) {
-                                                    return p.isDealer;
-                                                });
-                                                if (dealer >= 0) {
-                                                    var dealerIndex = (dealer + 1) % players.length;
-                                                    var smallBlindIndex = (dealer + 2) % players.length;
-                                                    var bigBlindIndex = (dealer + 3) % players.length;
-                                                    dealerData.dealerNo = players[dealerIndex].playerNo;
-                                                    dealerData.smallBlindNo = players[smallBlindIndex].playerNo;
-                                                    dealerData.bigBlindNo = players[bigBlindIndex].playerNo;
-                                                }
-                                                async.each(players,
-                                                    function (p, callback) {
-                                                        var buyInAmt = p.buyInAmt;
-                                                        var isActive = p.isActive;
-                                                        var tableLeft = p.tableLeft;
-                                                        var payBigBlind = false;
-                                                        var isDealer = false;
-                                                        var isSmallBlind = false;
-                                                        var isBigBlind = false;
-                                                        //var bigBlind = p.table.bigBlind
-                                                        if (p.buyInAmt == 0 && p.autoRebuy) {
-                                                            buyInAmt = p.autoRebuyAmt;
-                                                            if (p.user.balance < p.autoRebuyAmt) {
-                                                                buyInAmt = p.user.balance;
-                                                            }
-                                                        }
-
-                                                        if (dealerData.dealerNo == p.playerNo) {
-                                                            isDealer = true;
-                                                        }
-
-                                                        if (dealerData.smallBlindNo == p.playerNo) {
-                                                            isSmallBlind = true;
-                                                        }
-
-                                                        if (dealerData.bigBlindNo == p.playerNo) {
-                                                            isBigBlind = true;
-                                                        }
-
-                                                        if (p.buyInAmt == 0 && !p.autoRebuy || p.tableLeft) {
-                                                            isActive = false;
-                                                        }
-
-                                                        if (p.payBigBlind && !p.isActive) {
-                                                            payBigBlind = true;
-                                                            isActive = true;
-                                                        }
-
-                                                        if(!p.isActive && isBigBlind){
-                                                            isActive = true;
-                                                        }
-                                                        // if (!moment(p.updatedAt).isAfter(moment().subtract(300, 'seconds'))) {
-                                                        //     tableLeft = true;
-                                                        // }
-
-                                                        Model.findOneAndUpdate({
-                                                            table: tableId,
-                                                            _id: p._id
-                                                        }, {
-                                                            $set: {
-                                                                isFold: false,
-                                                                cards: [],
-                                                                isTurn: false,
-                                                                cardsServe: 0,
-                                                                isLastBlind: false,
-                                                                hasRaised: false,
-                                                                isAllIn: false,
-                                                                hasRaisedd: false,
-                                                                hasChecked: false,
-                                                                hasCalled: false,
-                                                                isSmallBlind: false,
-                                                                isBigBlind: false,
-                                                                totalAmount: 0,
-                                                                hasTurnCompleted: false,
-                                                                isActive: isActive,
-                                                                buyInAmt: buyInAmt,
-                                                                tableLeft: tableLeft,
-                                                                isDealer: isDealer,
-                                                                isSmallBlind: isSmallBlind,
-                                                                isBigBlind: isBigBlind
-                                                            },
-
-                                                        }, {
-                                                            new: true
-                                                        }, function (err, result) {
-                                                            console.log(err, result)
-                                                            if (err) {
-                                                                callback(err);
-                                                            } else {
-                                                                if (payBigBlind) {
-                                                                    var pot = {};
-                                                                    pot.round = 'preFlop';
-                                                                    pot.amount = p.table.bigBlind;
-                                                                    pot.playerNo = p.playerNo;
-                                                                    pot.tableId = tableId;
-                                                                    //console.log(, pot);
-                                                                    pot.type = 'main';
-
-                                                                    Pot.AddToMainPort(pot, result, callback);
-
-                                                                } else {
-                                                                    callback(err);
-                                                                }
-                                                            }
-                                                        });
-
-                                                        //}
-                                                    }, fwCallback);
-
-                                            }
-                                        });
-                                    },
-                                    function (callback) {
-                                        Model.find(filter2).exec(function (err, players) {
-                                            async.each(players,
-                                                function (p, callback) {
-
-                                                });
-                                        })
-                                    }
-                                ]);
+                function (callback) {
+                    Player.find({
+                        $or: [{
+                                table: data.tableId,
+                                tableLeft: false
+                            }, {
+                                table: data.tableId,
+                                isDealer: true
+                            },
+                            {
+                                table: data.tableId,
+                                isSmallBlind: true
+                            }, {
+                                table: data.tableId,
+                                isBigBlind: true
                             }
+                        ]
+                    }).sort({playerNo:1}).deepPopulate('user table').exec(function (err, players) {
+                        if (err || _.isEmpty(players)) {
+                            callback(err);
+                        } else {
+                            console.log("players>>>>>>>>>", players);
+                            var dealerData = {
+                                dealerNo: 0,
+                                bigBlindNo: 0,
+                                smallBlindNo: 0
+                            }
+                           var dealerIndex =  _.findIndex(players, function(p){
+                                   return p.isSmallBlind;
+                               });
+
+                               if(dealerIndex >= 0){
+                                dealerData.dealerNo = players[dealerIndex].playerNo;
+                                var smallBlindIndex = (dealerIndex + 1) % players.length;
+                                var bigBlindIndex = (dealerIndex + 2) % players.length;
+                                dealerData.smallBlindNo = players[smallBlindIndex].playerNo;
+                                dealerData.bigBlindNo = players[bigBlindIndex].playerNo;
+                               }
+                                 
+                               console.log("dealerData>>>>>> ", dealerData);
+                               async.eachSeries(players,
+                                function (p, callback) {
+                                    var buyInAmt = p.buyInAmt;
+                                    var isActive = p.isActive;
+                                    var tableLeft = p.tableLeft;
+                                    var payBigBlind = false;
+                                    var isDealer = false;
+                                    var isSmallBlind = false;
+                                    var isBigBlind = false;
+                                    //var bigBlind = p.table.bigBlind
+                                    if (p.buyInAmt == 0 && p.autoRebuy) {
+                                        buyInAmt = p.autoRebuyAmt;
+                                        if (p.user.balance < p.autoRebuyAmt) {
+                                            buyInAmt = p.user.balance;
+                                        }
+                                    }
+
+                                    if (dealerData.dealerNo == p.playerNo) {
+                                        isDealer = true;
+                                    }
+
+                                    if (dealerData.smallBlindNo == p.playerNo) {
+                                        isSmallBlind = true;
+                                    }
+
+                                    if (dealerData.bigBlindNo == p.playerNo) {
+                                        isBigBlind = true;
+                                    }
+
+                                    if (p.buyInAmt == 0 && !p.autoRebuy || p.tableLeft) {
+                                        isActive = false;
+                                    }
+
+                                    if (p.payBigBlind && !p.isActive && !p.tableLeft) {
+                                        payBigBlind = true;
+                                        isActive = true;
+                                    }
+
+                                    if (!p.isActive && isBigBlind) {
+                                        isActive = true;
+                                    }
+                                    // if (!moment(p.updatedAt).isAfter(moment().subtract(300, 'seconds'))) {
+                                    //     tableLeft = true;
+                                    // }
+
+                                    Model.findOneAndUpdate({
+                                        table: tableId,
+                                        _id: p._id
+                                    }, {
+                                        $set: {
+                                            isFold: false,
+                                            cards: [],
+                                            isTurn: false,
+                                            cardsServe: 0,
+                                            isLastBlind: false,
+                                            hasRaised: false,
+                                            isAllIn: false,
+                                            hasRaisedd: false,
+                                            hasChecked: false,
+                                            hasCalled: false,
+                                            isSmallBlind: false,
+                                            isBigBlind: false,
+                                            totalAmount: 0,
+                                            hasTurnCompleted: false,
+                                            isActive: isActive,
+                                            buyInAmt: buyInAmt,
+                                            tableLeft: tableLeft,
+                                            isDealer: isDealer,
+                                            isSmallBlind: isSmallBlind,
+                                            isBigBlind: isBigBlind
+                                        },
+
+                                    }, {
+                                        new: true
+                                    }, function (err, result) {
+                                        console.log(err, result)
+                                        if (err) {
+                                            callback(err);
+                                        } else {
+                                            console.log("payBigBlind , ", payBigBlind, "  ", p.playerNo, " ", p.payBigBlind);
+                                            if (payBigBlind) {
+                                                var pot = {};
+                                                pot.round = 'preFlop';
+                                                pot.amount = p.table.bigBlind;
+                                                pot.playerNo = p.playerNo;
+                                                pot.tableId = tableId;
+                                                //console.log(, pot);
+                                                pot.type = 'main';
+
+                                                Pot.AddToMainPort(pot, result, function (err) {
+                                                    console.log("err>>>>>>>>", err);
+                                                    callback(err);
+                                                });
+
+                                            } else {
+                                                callback(err);
+                                            }
+                                        }
+                                    });
+
+                                    //}
+                                }, callback);             
                         }
+
                     });
-
-
                 },
+                // function (fwCallback) {
+                //     console.log("inside");
+
+                //     Player.findSmallAndDealer(data, function (err, result) {
+                //         if (err) {
+
+                //             fwCallback(err)
+                //         } else {;
+                //             if (!result.smallBlind && !result.dealer) {
+
+                //                 fwCallback(null);
+                //             } else {
+                //                 console.log("result ", result);
+                //                 var currentDealer = result.dealer.playerNo;
+                //                 var currentSmallBlind = result.smallBlind.playerNo;
+                //                 console.log("currentDealer ", currentDealer, "currentSmallBlind ", currentSmallBlind);
+                //                 var filter1 = {
+                //                     $or: [{
+                //                         table: data.tableId,
+                //                         isActive: true
+                //                     }, {
+                //                         table: data.tableId,
+                //                         tableLeft: false,
+                //                         playerNo: {
+                //                             $lte: currentDealer,
+                //                             $gte: currentSmallBlind
+                //                         },
+
+                //                     }, {
+                //                         isDealer: true
+                //                     }, {
+                //                         isSmallBlind: true
+                //                     }, {
+                //                         isBigBlind: true
+                //                     }]
+                //                 };
+                //                 var filter2 = {
+                //                     // playerNo: {
+                //                     //     $gt: currentDealer,
+                //                     //     $lt: currentSmallBlind
+                //                     // },
+                //                     tableLeft: false,
+                //                     isActive: false,
+                //                     table: data.tableId,
+                //                 }
+                //                 async.waterfall([function (callback) {
+                //                         Model.find(filter1).sort({
+                //                             playerNo: 1
+                //                         }).deepPopulate('user table').exec(function (err, players) {
+                //                             console.log("filter1", players);
+                //                             if (err) {
+                //                                 callback(err);
+                //                             } else {
+                //                                 var dealerData = {
+                //                                     dealerNo: 0,
+                //                                     bigBlindNo: 0,
+                //                                     smallBlindNo: 0
+                //                                 }
+                //                                 var dealer = _.findIndex(players, function (p) {
+                //                                     return p.isDealer;
+                //                                 });
+                //                                 if (dealer >= 0) {
+                //                                     var dealerIndex = (dealer + 1) % players.length;
+                //                                     var smallBlindIndex = (dealer + 2) % players.length;
+                //                                     var bigBlindIndex = (dealer + 3) % players.length;
+                //                                     dealerData.dealerNo = players[dealerIndex].playerNo;
+                //                                     dealerData.smallBlindNo = players[smallBlindIndex].playerNo;
+                //                                     dealerData.bigBlindNo = players[bigBlindIndex].playerNo;
+                //                                 }
+                //                                 async.each(players,
+                //                                     function (p, callback) {
+                //                                         var buyInAmt = p.buyInAmt;
+                //                                         var isActive = p.isActive;
+                //                                         var tableLeft = p.tableLeft;
+                //                                         var payBigBlind = false;
+                //                                         var isDealer = false;
+                //                                         var isSmallBlind = false;
+                //                                         var isBigBlind = false;
+                //                                         //var bigBlind = p.table.bigBlind
+                //                                         if (p.buyInAmt == 0 && p.autoRebuy) {
+                //                                             buyInAmt = p.autoRebuyAmt;
+                //                                             if (p.user.balance < p.autoRebuyAmt) {
+                //                                                 buyInAmt = p.user.balance;
+                //                                             }
+                //                                         }
+
+                //                                         if (dealerData.dealerNo == p.playerNo) {
+                //                                             isDealer = true;
+                //                                         }
+
+                //                                         if (dealerData.smallBlindNo == p.playerNo) {
+                //                                             isSmallBlind = true;
+                //                                         }
+
+                //                                         if (dealerData.bigBlindNo == p.playerNo) {
+                //                                             isBigBlind = true;
+                //                                         }
+
+                //                                         if (p.buyInAmt == 0 && !p.autoRebuy || p.tableLeft) {
+                //                                             isActive = false;
+                //                                         }
+
+                //                                         if (p.payBigBlind && !p.isActive) {
+                //                                             payBigBlind = true;
+                //                                             isActive = true;
+                //                                         }
+
+                //                                         if (!p.isActive && isBigBlind) {
+                //                                             isActive = true;
+                //                                         }
+                //                                         // if (!moment(p.updatedAt).isAfter(moment().subtract(300, 'seconds'))) {
+                //                                         //     tableLeft = true;
+                //                                         // }
+
+                //                                         Model.findOneAndUpdate({
+                //                                             table: tableId,
+                //                                             _id: p._id
+                //                                         }, {
+                //                                             $set: {
+                //                                                 isFold: false,
+                //                                                 cards: [],
+                //                                                 isTurn: false,
+                //                                                 cardsServe: 0,
+                //                                                 isLastBlind: false,
+                //                                                 hasRaised: false,
+                //                                                 isAllIn: false,
+                //                                                 hasRaisedd: false,
+                //                                                 hasChecked: false,
+                //                                                 hasCalled: false,
+                //                                                 isSmallBlind: false,
+                //                                                 isBigBlind: false,
+                //                                                 totalAmount: 0,
+                //                                                 hasTurnCompleted: false,
+                //                                                 isActive: isActive,
+                //                                                 buyInAmt: buyInAmt,
+                //                                                 tableLeft: tableLeft,
+                //                                                 isDealer: isDealer,
+                //                                                 isSmallBlind: isSmallBlind,
+                //                                                 isBigBlind: isBigBlind
+                //                                             },
+
+                //                                         }, {
+                //                                             new: true
+                //                                         }, function (err, result) {
+                //                                             console.log(err, result)
+                //                                             if (err) {
+                //                                                 callback(err);
+                //                                             } else {
+                //                                                 console.log("payBigBlind , ", payBigBlind, "  ", p.playerNo, " ", p.payBigBlind);
+                //                                                 if (payBigBlind) {
+                //                                                     var pot = {};
+                //                                                     pot.round = 'preFlop';
+                //                                                     pot.amount = p.table.bigBlind;
+                //                                                     pot.playerNo = p.playerNo;
+                //                                                     pot.tableId = tableId;
+                //                                                     //console.log(, pot);
+                //                                                     pot.type = 'main';
+
+                //                                                     Pot.AddToMainPort(pot, result, function (err) {
+                //                                                         console.log("err>>>>>>>>", err);
+                //                                                         callback(err);
+                //                                                     });
+
+                //                                                 } else {
+                //                                                     callback(err);
+                //                                                 }
+                //                                             }
+                //                                         });
+
+                //                                         //}
+                //                                     }, callback);
+
+                //                             }
+                //                         });
+                //                     },
+                //                     function (callback) {
+                //                         Model.find(filter2).deepPopulate('user table').exec(function (err, players) {
+                //                             console.log("filter2", players);
+                //                             async.each(players,
+                //                                 function (p, callback) {
+                //                                     var payBigBlind = false;
+                //                                     var isActive = p.isActive;
+                //                                     if (p.payBigBlind && !p.isActive) {
+                //                                         payBigBlind = true;
+                //                                         isActive = true;
+                //                                     }
+
+                //                                     Model.findOneAndUpdate({
+                //                                         table: tableId,
+                //                                         _id: p._id
+                //                                     }, {
+                //                                         $set: {
+                //                                             isFold: false,
+                //                                             cards: [],
+                //                                             isTurn: false,
+                //                                             cardsServe: 0,
+                //                                             isLastBlind: false,
+                //                                             hasRaised: false,
+                //                                             isAllIn: false,
+                //                                             hasRaisedd: false,
+                //                                             hasChecked: false,
+                //                                             hasCalled: false,
+                //                                             isSmallBlind: false,
+                //                                             isBigBlind: false,
+                //                                             hasTurnCompleted: false,
+                //                                             isActive: isActive,
+
+                //                                         },
+
+                //                                     }, {
+                //                                         new: true
+                //                                     }, function (err, result) {
+                //                                         console.log("payBigBlind , ", payBigBlind, "  ", p.playerNo);
+                //                                         console.log(err, result)
+                //                                         if (err) {
+                //                                             callback(err);
+                //                                         } else {
+                //                                             if (payBigBlind) {
+                //                                                 var pot = {};
+                //                                                 pot.round = 'preFlop';
+                //                                                 pot.amount = p.table.bigBlind;
+                //                                                 pot.playerNo = p.playerNo;
+                //                                                 pot.tableId = tableId;
+                //                                                 //console.log(, pot);
+                //                                                 pot.type = 'main';
+
+                //                                                 Pot.AddToMainPort(pot, result, function (err) {
+                //                                                     console.log("err>>>>>>>>", err);
+                //                                                     callback(err);
+                //                                                 });
+
+                //                                             } else {
+                //                                                 callback(err);
+                //                                             }
+                //                                         }
+                //                                     });
+                //                                 }, callback);
+                //                         });
+                //                     }
+                //                 ], function (err) {
+                //                     fwCallback(err);
+                //                 });
+                //             }
+                //         }
+                //     });
+
+
+                // },
                 function (callback) {
 
                     Player.remove({
@@ -1005,7 +1222,7 @@ var model = {
                             callback(err);
                         } else {
                             if (!_.isEmpty(dealer)) {
-                                console.log("inside start serve");
+                                console.log("pot return");
                                 CommunityCards.startServe(data.tableId, function (err) {
                                     callback(err);
                                 });
@@ -1047,12 +1264,12 @@ var model = {
         var Model = this;
         async.parallel({
             dealer: function (callback) {
-                Player.findDealer(data, callback);
+                Player.findDealer(data.tableId, callback);
             },
             smallBlind: function (callback) {
                 Model.findOne({
                     table: data.tableId,
-                    isSmallBlind: false
+                    isSmallBlind: true
                 }).exec(callback);
             }
         }, callback);
@@ -2454,7 +2671,7 @@ var model = {
                     });
                 },
                 makeEntry: function (callback) {
-                    if (smallBlind.tableLeft) {
+                    if (smallBlind.tableLeft || smallBlind.totalAmount != 0) {
                         callback(null);
                     } else {
                         var pot = {};
@@ -2487,7 +2704,7 @@ var model = {
                     });
                 },
                 makeEntry: function (callback) {
-                    if (bigBlind.tableLeft) {
+                    if (bigBlind.tableLeft || bigBlind.totalAmount != 0) {
                         callback(null);
                     } else {
                         var pot = {};
