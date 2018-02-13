@@ -91,12 +91,16 @@ var schema = new Schema({
 
 });
 
-schema.plugin(deepPopulate, {});
+schema.plugin(deepPopulate, {
+    "history.potWinners.winnerPlayer.playerId": {
+        select: '_id name'
+    }
+});
 schema.plugin(uniqueValidator);
 schema.plugin(timestamps);
 module.exports = mongoose.model('Table', schema);
 
-var exports = _.cloneDeep(require("sails-wohlig-service")(schema));
+var exports = _.cloneDeep(require("sails-wohlig-service")(schema, 'history.potWinners.winnerPlayer.playerId', 'history.potWinners.winnerPlayer.playerId'));
 var model = {
     getAllTable: function (data, callback) {
         var requiredData = Player.requiredData();
@@ -190,7 +194,7 @@ var model = {
                 var player = _.cloneDeep(removerPlayer)
                 var socketId = removerPlayer.socketId;
                 var removeCheck = false;
-
+                var playerNo = removerPlayer.playerNo;
                 if (result.table.status == 'beforeStart' && !player.isDealer && !player.isSmallBlind && !player.isBigBlind) {
                     removeCheck = true;
                 }
@@ -200,13 +204,12 @@ var model = {
                 result.table.markModified('activePlayer');
                 //console.log("socketId....", socketId);
                 //console.log("result.table ", String("room" + result.table._id));
-                async.parallel([
-                    function (callback) {
-                        result.table.save(callback);
-                    },
+                async.waterfall([
                     function (callback) {
                         if (removeCheck) {
-                            removerPlayer.remove(callback);
+                            removerPlayer.remove(function (err) {
+                                callback(err);
+                            });
                         } else {
                             removerPlayer.tableLeft = true;
                             removerPlayer.isActive = true;
@@ -219,11 +222,19 @@ var model = {
                                         tableId: data.tableId,
                                         accessToken: 'fromSystem',
                                         foldPlayer: foldPlayer
-                                    }, callback);
+                                    }, function (err) {
+                                        callback(err);
+                                    });
                                 }
                             });
                         }
                     },
+                    function (callback) {
+                        Player.removeInactivePlayer({
+                            tableId: data.tableId
+                        }, callback);
+                    }
+
                     // function (callback) {
                     //     Transaction.tableLostAmount(player, callback);
 
@@ -233,7 +244,8 @@ var model = {
                     // }
                 ], function (err, result) {
                     Table.blastSocket(data.tableId, {
-                        removePlayer: true
+                        removePlayer: true,
+                        playerNo: playerNo
                     });
                     // console.log("err", err);
                     callback(err, result);
@@ -685,7 +697,7 @@ var model = {
                         });
                     }
                 });
-                
+
                 _.each(allData.dealer, function (d) {
                     sails.sockets.broadcast(d.socketId, "Update", {
                         data: allData
@@ -748,6 +760,65 @@ var model = {
                     callback(null);
                 }
             }], callback);
+        });
+    },
+    tableHistory: function (data, callback) {
+        console.log(data);
+        async.parallel({
+            table: function (callback) {
+                Table.findOne({
+                    _id: data.tableId
+                }).deepPopulate("history.potWinners.winnerPlayer.playerId").lean().exec(callback);
+            },
+            user: function (callback) {
+                User.findOne({
+                    accessToken: data.accessToken
+                }).lean().exec(callback);
+            }
+        }, function (err, result) {
+            if (err || _.isEmpty(result.table) || _.isEmpty(result.user)) {
+                callback(err);
+            } else {
+                var messages = [];
+                var games = _.filter(result.table.history, function (h) {
+                    console.log(_.some(h.activePlayers, result.user._id));
+                    return _.some(h.activePlayers, result.user._id);
+                });
+
+                _.each(games, function (g) {
+                    var pots = [];
+
+                    _.each(g.potWinners, function (w) {
+                        console.log("games", w);
+                        var message = '';
+                        var cards = [];
+                        _.each(w.winnerPlayer, function (p, index) {
+                            if (index != 0) {
+                                message += ', ';
+                            }
+                            if (p.playerId._id + "" == result.user._id) {
+                                message += 'You '
+                            } else {
+                                message += p.playerId.name + ' ';
+                            }
+
+
+                            cards.push(p.winningCards);
+                            console.log(cards);
+                        });
+                        message += 'won the ' + w.potName + ' worth ' + w.amount + '.';
+
+                        pots.push({
+                            message: message,
+                            cards: cards
+                        });
+
+                    });
+                    messages.push(pots);
+                });
+                callback(null, messages);
+
+            }
         });
     }
 

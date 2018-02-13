@@ -568,7 +568,7 @@ var model = {
             },
             extra: function (callback) { //to have same format required by the frontend
                 callback(null, {});
-            }
+            }   
         }, function (err, allData) {
             if (err) {
                 callback(err);
@@ -650,10 +650,10 @@ var model = {
 
 
                             // console.log("remainingBalance", remainingBalance);
-                            console.log("allData.callAmount;", allData.callAmount);
-                            console.log("maxAmount", maxAmount);
+                            // console.log("allData.callAmount;", allData.callAmount);
+                            // console.log("maxAmount", maxAmount);
                             if (allData.table.status == 'preFlop' && maxAmount < allData.table.bigBlind) {
-                                console.log("inside <<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+                                // console.log("inside <<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
                                 allData.isCalled = true;
                                 // allData.isChecked = false;
                             }
@@ -670,7 +670,7 @@ var model = {
                             if (remainingBalance >= allData.fromRaised && allData.fromRaised < allData.toRaised) {
                                 allData.isRaised = true;
                             }
-                            console.log("allData.isCalled", allData.isCalled);
+                            // console.log("allData.isCalled", allData.isCalled);
                             // allData.isRaised = true;
                             delete allData.tableStatus;
                             delete allData.currentPlayer;
@@ -796,20 +796,17 @@ var model = {
                     Player.find({
                         $or: [{
                                 table: data.tableId,
-                                tableLeft: false
-                            }, {
-                                table: data.tableId,
-                                isDealer: true
+                                isActive: true
                             },
                             {
-                                table: data.tableId,
-                                isSmallBlind: true
-                            }, {
-                                table: data.tableId,
-                                isBigBlind: true
+                                tableLeft: false
                             }
+
                         ]
-                    }).sort({playerNo:1}).deepPopulate('user table').exec(function (err, players) {
+
+                    }).sort({
+                        playerNo: 1
+                    }).deepPopulate('user table').exec(function (err, players) {
                         if (err || _.isEmpty(players)) {
                             callback(err);
                         } else {
@@ -819,20 +816,20 @@ var model = {
                                 bigBlindNo: 0,
                                 smallBlindNo: 0
                             }
-                           var dealerIndex =  _.findIndex(players, function(p){
-                                   return p.isSmallBlind;
-                               });
+                            var dealerIndex = _.findIndex(players, function (p) {
+                                return p.isSmallBlind;
+                            });
 
-                               if(dealerIndex >= 0){
+                            if (dealerIndex >= 0) {
                                 dealerData.dealerNo = players[dealerIndex].playerNo;
                                 var smallBlindIndex = (dealerIndex + 1) % players.length;
                                 var bigBlindIndex = (dealerIndex + 2) % players.length;
                                 dealerData.smallBlindNo = players[smallBlindIndex].playerNo;
                                 dealerData.bigBlindNo = players[bigBlindIndex].playerNo;
-                               }
-                                 
-                               console.log("dealerData>>>>>> ", dealerData);
-                               async.eachSeries(players,
+                            }
+
+                            console.log("dealerData>>>>>> ", dealerData);
+                            async.eachSeries(players,
                                 function (p, callback) {
                                     var buyInAmt = p.buyInAmt;
                                     var isActive = p.isActive;
@@ -933,7 +930,7 @@ var model = {
                                     });
 
                                     //}
-                                }, callback);             
+                                }, callback);
                         }
 
                     });
@@ -2712,9 +2709,7 @@ var model = {
                         pot.amount = data.bigBlind;
                         pot.playerNo = bigBlind.playerNo;
                         pot.tableId = bigBlind.table;
-                        console.log(">>>>>>>>>>>>>>>>>>>makeEntry", pot);
                         pot.type = 'main';
-
                         Pot.AddToMainPort(pot, bigBlind, callback);
                     }
                 }
