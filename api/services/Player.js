@@ -568,7 +568,7 @@ var model = {
             },
             extra: function (callback) { //to have same format required by the frontend
                 callback(null, {});
-            }   
+            }
         }, function (err, allData) {
             if (err) {
                 callback(err);
@@ -689,10 +689,10 @@ var model = {
     },
     removeInactivePlayer: function (data, callback) {
         Player.find({
-            $or: [{
+          
                 table: data.tableId,
                 tableLeft: false
-            }]
+          
         }).exec(function (err, result) {
             console.log("result.....", err, result);
             if (err) {
@@ -794,15 +794,8 @@ var model = {
 
                 function (callback) {
                     Player.find({
-                        $or: [{
-                                table: data.tableId,
-                                isActive: true
-                            },
-                            {
-                                tableLeft: false
-                            }
 
-                        ]
+                        table: data.tableId,
 
                     }).sort({
                         playerNo: 1
@@ -810,25 +803,78 @@ var model = {
                         if (err || _.isEmpty(players)) {
                             callback(err);
                         } else {
-                            console.log("players>>>>>>>>>", players);
+                            // console.log("players>>>>>>>>>", players);
                             var dealerData = {
                                 dealerNo: 0,
                                 bigBlindNo: 0,
                                 smallBlindNo: 0
                             }
+
                             var dealerIndex = _.findIndex(players, function (p) {
                                 return p.isSmallBlind;
                             });
-
-                            if (dealerIndex >= 0) {
-                                dealerData.dealerNo = players[dealerIndex].playerNo;
-                                var smallBlindIndex = (dealerIndex + 1) % players.length;
-                                var bigBlindIndex = (dealerIndex + 2) % players.length;
-                                dealerData.smallBlindNo = players[smallBlindIndex].playerNo;
-                                dealerData.bigBlindNo = players[bigBlindIndex].playerNo;
+                             
+                            if(!_.isEmpty(players) && dealerIndex != -1){
+                            dealerData.dealerNo = players[dealerIndex].playerNo;
                             }
 
-                            console.log("dealerData>>>>>> ", dealerData);
+                            var smallBlindArr = _.cloneDeep(players);
+
+                            _.remove(smallBlindArr, function (p) {
+                                return !p.isActive && !p.payBigBlind && !p.tableLeft
+                            });
+
+                            var smallBlindIndex = _.findIndex(smallBlindArr, function (p) {
+                                return p.playerNo > dealerData.dealerNo
+                            });
+
+                            if (smallBlindIndex == -1) {
+                                smallBlindIndex = 0;
+                            }
+                            // if (smallBlindIndex == -1) {
+
+                            //      dealerData.smallBlindNo = smallBlindArr[0].playerNo;
+                            //     // var smallBlind = _.minBy(smallBlindArr, 'playerNo');
+
+                            // } else {
+                            //     dealerData.smallBlindNo = smallBlindArr[smallBlindIndex].playerNo;
+                            // }
+                            if (!_.isEmpty(smallBlindArr)) {
+                                dealerData.smallBlindNo = smallBlindArr[smallBlindIndex].playerNo;
+                            }
+                            var bigBlindArr = _.cloneDeep(players);
+
+                            _.remove(bigBlindArr, function (p) {
+                                return p.tableLeft
+                            });
+
+                            var bigBlindIndex = _.findIndex(bigBlindArr, function (p) {
+                                return p.playerNo > dealerData.smallBlindNo
+                            });
+                            // if (bigBlindIndex == -1) {
+                            //     dealerData.bigBlindNo = bigBlindArr[0].playerNo;
+                            //     // var bigBlind = _.minBy(bigBlindArr, 'playerNo');
+                            //     // dealerData.bigBlindNo = bigBlind.playerNo;
+                            // } else {
+                            //     dealerData.bigBlindNo = smallBlindArr[bigBlindIndex].playerNo;
+                            // }
+                            // if (dealerIndex >= 0) {
+
+                            //     var smallBlindIndex = (dealerIndex + 1) % players.length;
+                            //     var bigBlindIndex = (dealerIndex + 2) % players.length;
+                            //     dealerData.smallBlindNo = players[smallBlindIndex].playerNo;
+                            //     dealerData.bigBlindNo = players[bigBlindIndex].playerNo;
+                            // }
+
+                            if (bigBlindIndex == -1) {
+                                bigBlindIndex = 0;
+                            }
+                            if (!_.isEmpty(bigBlindArr)) {
+                                dealerData.bigBlindNo = bigBlindArr[bigBlindIndex].playerNo;
+                            }
+                            // _.remove(players, function (p) {
+                            //     return p.tableLeft && p.playerNo != dealerData.dealerNo && p.playerNo != dealerData.smallBlindNo
+                            // });
                             async.eachSeries(players,
                                 function (p, callback) {
                                     var buyInAmt = p.buyInAmt;
@@ -2746,7 +2792,8 @@ var model = {
                 table: player.table,
                 isActive: true,
                 isFold: false,
-                isAllIn: false
+                isAllIn: false,
+                tableLeft: false
             };
         } else {
             filter = {

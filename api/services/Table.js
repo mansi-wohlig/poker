@@ -211,8 +211,42 @@ var model = {
                                 callback(err);
                             });
                         } else {
+                            // Player.fold({
+                            //     tableId: data.tableId,
+                            //     accessToken: 'fromSystem',
+                            //     foldPlayer: removerPlayer
+                            // }, function (err) {
+                            //     Player.findOneAndUpdate({
+                            //         table: data.tableId,
+                            //         _id: removerPlayer._id
+                            //     }, {
+                            //         $set: {
+                            //             isFold: false,
+                            //             cards: [],
+                            //             isTurn: false,
+                            //             cardsServe: 0,
+                            //             isLastBlind: false,
+                            //             hasRaised: false,
+                            //             isAllIn: false,
+                            //             hasRaisedd: false,
+                            //             hasChecked: false,
+                            //             hasCalled: false,
+                            //             isSmallBlind: false,
+                            //             isBigBlind: false,
+                            //             totalAmount: 0,
+                            //             hasTurnCompleted: false,
+                            //             tableLeft: true,
+                            //         },
+
+                            //     }, {
+                            //         new: true
+                            //     }, function (err, result) {
+                            //        callback(err); 
+                            //     });
+                            // });
                             removerPlayer.tableLeft = true;
                             removerPlayer.isActive = true;
+                            removerPlayer.cards = [];
                             // removerPlayer.user = "";
                             removerPlayer.save(function (err, foldPlayer) {
                                 if (err) {
@@ -243,7 +277,7 @@ var model = {
                     //     sails.sockets.leave(socketId, String("room" + result.table._id), callback);
                     // }
                 ], function (err, result) {
-                    Table.blastSocket(data.tableId, {
+                    Table.blastRemoveSocket(data.tableId, {
                         removePlayer: true,
                         playerNo: playerNo
                     });
@@ -340,6 +374,7 @@ var model = {
                 var user = result.user;
                 var table = result.table;
                 var playerIndex = -1;
+                var dealerIndex = -1;
                 //check for max players
                 if (table.activePlayer && result.players.length == table.maximumNoOfPlayers) {
                     callback("Room Not Available");
@@ -354,6 +389,10 @@ var model = {
                 playerIndex = _.findIndex(result.players, function (p) {
                     return (p.user + "" == user._id + "" && p.table + "" == data.tableId + "" && !p.tableLeft);
                 });
+
+                dealerIndex = _.findIndex(result.players, function (p) {
+                    return p.isDealer;
+                });
                 // console.log(playerAdded);
                 // if (playerAdded) {
 
@@ -365,7 +404,7 @@ var model = {
                 // console.log("playerIndex ", playerIndex);
                 //already exists
                 if (playerIndex >= 0) {
-                    console.log("Player Already Added");
+
                     callback("Player Already Added");
                     return 0;
                 }
@@ -400,7 +439,7 @@ var model = {
                 player.buyInAmt = data.amount;
                 player.socketId = data.socketId;
                 player.autoRebuy = data.autoRebuy;
-                if (result.table.status != "beforeStart") {
+                if (result.table.status != "beforeStart" || dealerIndex != -1) {
                     player.isActive = false;
                 }
 
@@ -408,7 +447,14 @@ var model = {
                     player.autoRebuyAmt = player.buyInAmt;
                 }
 
-                async.waterfall([function (callback) {
+                async.waterfall([function(callback){
+                    Player.remove({
+                        table: data.tableId,
+                        playerNo: data.playerNo
+                    }).exec(function(err){
+                         callback(err);
+                    });
+                } ,function (callback) {
                     Player.saveData(player, function (err, player) {
                         if (err) {
 
@@ -727,6 +773,37 @@ var model = {
 
         return curStatus;
 
+    },
+    blastRemoveSocket: function(tableId, extraData){
+        Player.getAllDetails({
+            tableId: tableId
+        }, function (err, allData) {
+            // if (!fromUndo) {
+            //     GameLogs.create(function () {});
+            // } else {
+            //     allData.undo = true;
+            // }
+            // if (data && data.newGame) {
+            //     allData.newGame = true;
+            // }
+
+            if (err) {
+                console.log(err);
+            } else {
+                if (extraData) {
+                    allData.extra = extraData;
+                } else {
+                    allData.extra = {};
+                }
+                console.log("remove Player",allData);
+                sails.sockets.blast("removePlayer", {
+                    data: allData
+                });
+                // sails.sockets.broadcast("room" + tableId, "Update", {
+                //     data: allData
+                // });
+            }
+        });
     },
     updateStatus: function (tableId, callback) {
         console.log("updateStatus ", tableId);
