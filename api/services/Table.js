@@ -263,11 +263,12 @@ var model = {
                             });
                         }
                     },
-                    function (callback) {
-                        Player.removeInactivePlayer({
-                            tableId: data.tableId
-                        }, callback);
-                    }
+                    // function (callback) {
+                    //     console.log("inside removePlayer.......");
+                    //     Player.removeInactivePlayer({
+                    //         tableId: data.tableId
+                    //     }, callback);
+                    // }
 
                     // function (callback) {
                     //     Transaction.tableLostAmount(player, callback);
@@ -277,12 +278,18 @@ var model = {
                     //     sails.sockets.leave(socketId, String("room" + result.table._id), callback);
                     // }
                 ], function (err, result) {
-                    Table.blastRemoveSocket(data.tableId, {
-                        removePlayer: true,
-                        playerNo: playerNo
+                    Player.removeInactivePlayer({
+                        tableId: data.tableId
+                    }, function (err) {
+                        Table.blastRemoveSocket(data.tableId, {
+                            removePlayer: true,
+                            playerNo: playerNo
+                        });
+                        callback(err);
                     });
+
                     // console.log("err", err);
-                    callback(err, result);
+
                 });
 
 
@@ -390,7 +397,7 @@ var model = {
                     return (p.user + "" == user._id + "" && p.table + "" == data.tableId + "" && !p.tableLeft);
                 });
 
-                dealerIndex = _.findIndex(result.players, function (p) {
+                smallBlindIndex = _.findIndex(result.players, function (p) {
                     return p.isDealer;
                 });
                 // console.log(playerAdded);
@@ -417,6 +424,11 @@ var model = {
                     callback("position filled");
                     return 0;
                 }
+                var removePlayer = _.findIndex(result.players, function (p) {
+                    return p.playerNo == data.playerNo
+                });
+
+
                 // Player.find({
                 //     table: data.tableId
                 // }).sort({
@@ -439,7 +451,12 @@ var model = {
                 player.buyInAmt = data.amount;
                 player.socketId = data.socketId;
                 player.autoRebuy = data.autoRebuy;
-                if (result.table.status != "beforeStart" || dealerIndex != -1) {
+                if (removePlayer >= 0) {
+                    player.isDealer = result.players[removePlayer].isDealer;
+                    player.isSmallBlind = result.players[removePlayer].isSmallBlind;
+                    player.isBigBlind = result.players[removePlayer].isBigBlind;
+                }
+                if (result.table.status != "beforeStart" || smallBlindIndex != -1) {
                     player.isActive = false;
                 }
 
@@ -447,14 +464,14 @@ var model = {
                     player.autoRebuyAmt = player.buyInAmt;
                 }
 
-                async.waterfall([function(callback){
+                async.waterfall([function (callback) {
                     Player.remove({
                         table: data.tableId,
                         playerNo: data.playerNo
-                    }).exec(function(err){
-                         callback(err);
+                    }).exec(function (err) {
+                        callback(err);
                     });
-                } ,function (callback) {
+                }, function (callback) {
                     Player.saveData(player, function (err, player) {
                         if (err) {
 
@@ -774,7 +791,7 @@ var model = {
         return curStatus;
 
     },
-    blastRemoveSocket: function(tableId, extraData){
+    blastRemoveSocket: function (tableId, extraData) {
         Player.getAllDetails({
             tableId: tableId
         }, function (err, allData) {
@@ -795,7 +812,7 @@ var model = {
                 } else {
                     allData.extra = {};
                 }
-                console.log("remove Player",allData);
+                console.log("remove Player", allData);
                 sails.sockets.blast("removePlayer", {
                     data: allData
                 });

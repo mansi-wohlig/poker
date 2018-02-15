@@ -94,6 +94,10 @@ var schema = new Schema({
     payBigBlind: {
         type: Boolean,
         default: true
+    },
+    autoFoldNo: {
+        type: Number,
+        default: 0
     }
 
 });
@@ -577,6 +581,7 @@ var model = {
                     p['no'] = key + 1;
                 });
 
+
                 if (allData.table.status == 'beforeStart') {
                     _.remove(allData.players, function (p) {
                         return (p.tableLeft && !p.isDealer && !p.isSmallBlind && !p.isBigBlind);
@@ -592,6 +597,14 @@ var model = {
                 });
 
                 _.each(allData.players, function (p) {
+                    if (p.tableLeft) {
+                        p.cards = [];
+                        p.isFold = false;
+                        p.isAllIn = false;
+                        //  p.isActive = false;
+                    }
+                    console.log("Pot.gePlayerAmount(allData.table, p.playerNo);", Pot.gePlayerAmount(allData.table, p.playerNo));
+                    p.currentRoundAmt = Pot.gePlayerAmount(allData.table, p.playerNo);
                     allData.players.winPots = [];
                     _.each(allData.pots, function (pot) {
                         var winIndex = -1;
@@ -689,10 +702,10 @@ var model = {
     },
     removeInactivePlayer: function (data, callback) {
         Player.find({
-          
-                table: data.tableId,
-                tableLeft: false
-          
+
+            table: data.tableId,
+            tableLeft: false
+
         }).exec(function (err, result) {
             console.log("result.....", err, result);
             if (err) {
@@ -813,9 +826,9 @@ var model = {
                             var dealerIndex = _.findIndex(players, function (p) {
                                 return p.isSmallBlind;
                             });
-                             
-                            if(!_.isEmpty(players) && dealerIndex != -1){
-                            dealerData.dealerNo = players[dealerIndex].playerNo;
+
+                            if (!_.isEmpty(players) && dealerIndex != -1) {
+                                dealerData.dealerNo = players[dealerIndex].playerNo;
                             }
 
                             var smallBlindArr = _.cloneDeep(players);
@@ -1870,6 +1883,7 @@ var model = {
                     function (player, callback) {
                         player.isAllIn = true;
                         player.hasRaised = true;
+                        player.autoFoldNo = 0;
                         player.save(function (err, data) {
                             console.log("playerData", data);
                             callback(err, data);
@@ -1944,12 +1958,16 @@ var model = {
                                     var player = players[newTurnIndex];
                                     // player.turn = true;
                                     player.isTurn = true;
-                                    CommunityCards.setTimeOut(tableId, player.playerNo);
-                                    player.save(callback);
+                                    
+                                    player.save(function(err, data){
+                                        console.log("err...........", err, "data .........", data.playerNo);
+                                        CommunityCards.setTimeOut(tableId, data.playerNo);
+                                        callback(err, data);
+                                    });
                                 }
                             }, function (err, data) {
                                 callback(err, data);
-                                Player.whetherToEndTurn(data.removeTurn[0], data.addTurn[0], function (err) {
+                                Player.whetherToEndTurn(data.removeTurn[0], data.addTurn, function (err) {
                                     Table.blastSocket(tableId);
                                 });
                             });
@@ -2019,7 +2037,7 @@ var model = {
                                             Player.makeBigBlind,
                                             Player.nextInPlay,
                                             function (player, callback) {
-                                                console.log("table.isStraddle>>>>>>>>>>>>>>>", table.isStraddle);
+                                               // console.log("table.isStraddle>>>>>>>>>>>>>>>", table.isStraddle);
                                                 if (table.isStraddle) {
                                                     console.log("inside Straddle", table.isStraddle);
                                                     var pot = {};
@@ -2077,9 +2095,12 @@ var model = {
                         function (player, callback) { // Enable turn from the same
                             // player.turn = true;
                             console.log("player...........", player);
-                            CommunityCards.setTimeOut(player.table, player.playerNo);
+                          
                             player.isTurn = true;
-                            player.save(callback);
+                            player.save(function(err, data){
+                                CommunityCards.setTimeOut(player.table, player.playerNo);
+                                callback(err, data);
+                            });
                         }
                     ], callback);
                 } else {
@@ -2125,6 +2146,7 @@ var model = {
                     function (player, callback) {
                         player.hasRaised = true;
                         player.hasRaisedd = true;
+                        player.autoFoldNo = 0;
                         player.save(function (err, data) {
 
                             callback(err, data);
@@ -2184,6 +2206,7 @@ var model = {
                     Player.currentTurn,
                     function (player, callback) {
                         player.hasCalled = true;
+                        player.autoFoldNo = 0;
                         player.save(function (err, data) {
 
                             callback(err, data);
@@ -2257,6 +2280,7 @@ var model = {
                     Player.currentTurn,
                     function (player, callback) {
                         player.hasChecked = true;
+                        player.autoFoldNo = 0;
                         player.save(function (err, data) {
                             // Table.blastSocket(tableId);
                             callback(err, tableId);
@@ -2302,6 +2326,9 @@ var model = {
                     function (player, callback) {
                         console.log("after current turn");
                         player.isFold = true;
+                        if(data.accessToken != 'fromSystem'){
+                            player.autoFoldNo = true;   
+                        }
                         player.save(function (err, data) {
                             callback(err, data);
                         });
@@ -2343,8 +2370,13 @@ var model = {
 
                         });
                     },
-
-                    Player.changeTurn
+                    function (tableId, callback) {
+                        if (data.foldPlayer && !_.isEmpty(data.foldPlayer) && !data.foldPlayer.isTurn) {
+                            callback(null);
+                        } else {
+                            Player.changeTurn(tableId, callback);
+                        }
+                    }
                 ], function (err, data) {
                     console.log("final function");
                     if (err) {
@@ -2403,16 +2435,16 @@ var model = {
                 //getTableID
                 console.log("whether to end turn");
                 var allPlayers = data.allPlayers;
-                var fromPlayerPartition = _.partition(allPlayers, function (n) {
-                    return n.playerNo >= fromPlayer.playerNo;
-                });
+                // var fromPlayerPartition = _.partition(allPlayers, function (n) {
+                //     return n.playerNo >= fromPlayer.playerNo;
+                // });
 
-                var fromPlayerFirst = _.concat(fromPlayerPartition[0], fromPlayerPartition[1]);
+                // var fromPlayerFirst = _.concat(fromPlayerPartition[0], fromPlayerPartition[1]);
 
-                var toIndex = _.findIndex(fromPlayerFirst, function (n) {
-                    return n.playerNo == toPlayer.playerNo;
-                });
-                var fromPlayerToPlayer = _.slice(fromPlayerFirst, 0, toIndex + 1);
+                // var toIndex = _.findIndex(fromPlayerFirst, function (n) {
+                //     return n.playerNo == toPlayer.playerNo;
+                // });
+                // var fromPlayerToPlayer = _.slice(fromPlayerFirst, 0, toIndex + 1);
 
                 var allTurnDoneIndex = _.findIndex(allPlayers, function (p) {
                     return !p.hasTurnCompleted && !p.isFold && !p.isAllIn && !p.tableLeft

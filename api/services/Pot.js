@@ -39,8 +39,11 @@ var model = {
                 callback(err);
             } else {
                 if (_.isEmpty(pot)) {
-                    console.log("inside start serve");
-                    Model.saveData(data, callback);
+                    console.log("pot created");
+                    Model.saveData(data, function(err){
+                        console.log("after");
+                              callback(err);
+                    });
                 } else {
                     callback(err, data);
                 }
@@ -275,6 +278,18 @@ var model = {
         return amountStatus;
 
     },
+    gePlayerAmount: function(table , playerNo){
+        var index =    _.findIndex(table.currentRoundAmt, function(p){
+              return p.playerNo == playerNo;
+           });
+        
+           if(index >= 0){
+                return   table.currentRoundAmt[index].amount;
+           }else{
+               return 0;
+           }
+        
+    },
     solveInfo: function (allData, callback) {
         var finalData = {};
         var tableInfo = allData.table;
@@ -353,17 +368,20 @@ var model = {
         });
 
         //console.log(" before callAmount", callAmount);
+        if (!maxAmountObj && _.isEmpty(maxAmountObj)) {
         //console.log(" paidAmt", paidAmt);
         var maxAmount = 0;
         var maxAmountObj = _.maxBy(tableInfo.currentRoundAmt, "amount");
-        if (!maxAmountObj && _.isEmpty(maxAmountObj)) {
             maxAmount = 0;
         } else {
             maxAmount = maxAmountObj.amount;
         }
         callAmount = callAmount - paidAmt; // deduct already paid amount
-        if(status == 'preFlop' && callAmount == 0 && maxAmount == 0){
+        if(status == 'preFlop' && maxAmount == 0 ){
             callAmount = tableInfo.bigBlind;
+        }else if( status == 'preFlop' && maxAmount < tableInfo.bigBlind){
+                      
+            callAmount = tableInfo.bigBlind - Pot.gePlayerAmount(tableInfo, currentPlayer.playerNo);  
         }
         //getPrvStatus
 
@@ -724,7 +742,9 @@ var model = {
                 player.playerNo = data.playerNo;
                 Pot.players.push(player);
                 // console.log("...........player",player);
+                console.log("Pot.totalAmount   >>>>>>>>>>>>>>>>>>>>>>.....................",Pot.totalAmount);
                 Pot.totalAmount = parseInt(Pot.totalAmount) + parseInt(data.amount);
+                
             }
             async.parallel([function (callback) {
                 Pot.save(callback);
